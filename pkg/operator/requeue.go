@@ -22,3 +22,11 @@ func (r *RequeueError) Error() string {
 func (r *RequeueError) Result() *reconcile.Result {
 	return &reconcile.Result{Requeue: true, RequeueAfter: r.after}
 }
+
+func RequeueAfter(d time.Duration) *RequeueError {
+	return &RequeueError{after: d}
+}
+
+func RequeueWithError(d time.Duration, err error) *RequeueError {
+	return &RequeueError{after: d, err: err}
+}

@@ -18,6 +18,7 @@ package controller
 
 import (
 	"context"
+	"time"
 
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/client-go/tools/record"
@@ -76,12 +77,21 @@ func (r *ModelReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl
 
 // reconcile model logic
 func (r *ModelReconciler) reconcile(ctx context.Context, req ctrl.Request, m *llmv1alpha1.Model) error {
-	_ = model.ClientFromContext(ctx)
-	_ = model.WrappedRecorderFromContext[*llmv1alpha1.Model](ctx)
+	client := model.ClientFromContext(ctx)
+	recorder := model.WrappedRecorderFromContext[*llmv1alpha1.Model](ctx)
 
+	// mean no available model need retry
 	if !model.IsAvailable(ctx, *m) {
-
+		hasSet, err := model.SetProgressing(ctx, client, *m)
+		if err != nil {
+			return err
+		}
+		if hasSet {
+			recorder.Eventf("Normal", "ModelProgressing", "Model is progressing")
+			return operator.RequeueAfter(time.Second)
+		}
 	}
+
 	return nil
 }
 
@@ -90,4 +100,8 @@ func (r *ModelReconciler) SetupWithManager(mgr ctrl.Manager) error {
 	return ctrl.NewControllerManagedBy(mgr).
 		For(&llmv1alpha1.Model{}).
 		Complete(r)
+}
+
+func (r *ModelReconciler) reconcilePVC(ctx context.Context, namespace string, name string, m *llmv1alpha1.Model) error {
+	return nil
 }

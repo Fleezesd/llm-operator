@@ -147,8 +147,7 @@ const (
 	// up or old pods scale down. Progress is not estimated for paused deployments or
 	// when progressDeadlineSeconds is not specified.
 	ModelProgressing ConditionType = "Progressing"
-	// ReplicaFailure is added in a deployment when one of its pods fails to be created
-	// or deleted.
+	// ReplicaFailure is added in a deployment when one of its pods fails to be created or deleted.
 	ModelReplicaFailure ConditionType = "ReplicaFailure"
 )
 

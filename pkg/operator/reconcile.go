@@ -3,30 +3,33 @@ package operator
 import (
 	"context"
 
-	"github.com/samber/lo"
+	"k8s.io/apimachinery/pkg/runtime"
 	ctrl "sigs.k8s.io/controller-runtime"
-	"sigs.k8s.io/controller-runtime/pkg/log"
 )
 
-func HandleError(ctx context.Context, result *ctrl.Result, err error) (ctrl.Result, error) {
-	log := log.FromContext(ctx)
+type Reconcilers[T runtime.Object] []SubReconciler[T]
 
-	if result != nil && err != nil {
-		log.Error(err, "Requeue", "after", result.RequeueAfter)
-		return *result, err
-	}
-	if result != nil {
-		return *result, nil
-	}
-	return ctrl.Result{}, err
+func NewReconcilers[T runtime.Object](reconcilers ...SubReconciler[T]) Reconcilers[T] {
+	return reconcilers
 }
 
-func ResultFromError(err error) (*ctrl.Result, error) {
-	if lo.IsNil(err) {
-		return &ctrl.Result{}, nil
+func (s *Reconcilers[T]) Reconcile(ctx context.Context, req ctrl.Request, obj T) error {
+	return nil
+}
+
+type ReconcileHandler[T runtime.Object] func(ctx context.Context, namespace string, name string, obj T) error
+type SubReconciler[T runtime.Object] struct {
+	apiverison string
+	group      string
+	kind       string
+	reconcile  func(ctx context.Context, namespace string, name string, obj T) error
+}
+
+func NewPVCReconciler[T runtime.Object](fn ReconcileHandler[T]) SubReconciler[T] {
+	return SubReconciler[T]{
+		apiverison: "v1",
+		group:      "core",
+		kind:       "PersistentVolumeClaim",
+		reconcile:  fn,
 	}
-	if requeueErr, ok := err.(*RequeueError); ok {
-		return requeueErr.Result(), requeueErr.err
-	}
-	return nil, err
 }

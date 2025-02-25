@@ -7,6 +7,7 @@ import (
 	"k8s.io/client-go/tools/record"
 )
 
+// WrappedRecorder wraps a recorder and runtime.object
 type WrappedRecorder[T runtime.Object] struct {
 	recorder record.EventRecorder
 	t        T
@@ -17,6 +18,21 @@ func NewWrappedRecorder[T runtime.Object](recorder record.EventRecorder, object 
 		recorder: recorder,
 		t:        object,
 	}
+}
+
+// The resulting event will be created in the same namespace as the reference object.
+func (r *WrappedRecorder[T]) Event(eventType, reason, message string) {
+	r.recorder.Event(r.t, eventType, reason, message)
+}
+
+// Eventf is just like Event, but with Sprintf for the message field.
+func (r *WrappedRecorder[T]) Eventf(eventType, reason, messageFmt string, args ...any) {
+	r.recorder.Eventf(r.t, eventType, reason, messageFmt, args...)
+}
+
+// AnnotatedEventf is just like eventf, but with annotations attached
+func (r *WrappedRecorder[T]) AnnotatedEventf(annotations map[string]string, eventtype, reason, messageFmt string, args ...any) {
+	r.recorder.AnnotatedEventf(r.t, annotations, eventtype, reason, messageFmt, args...)
 }
 
 type baseWrapperRecorderContextKey string
