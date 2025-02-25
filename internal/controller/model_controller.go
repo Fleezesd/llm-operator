@@ -20,6 +20,7 @@ import (
 	"context"
 	"time"
 
+	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/client-go/tools/record"
 	ctrl "sigs.k8s.io/controller-runtime"
@@ -87,12 +88,14 @@ func (r *ModelReconciler) reconcile(ctx context.Context, req ctrl.Request, m *ll
 			return err
 		}
 		if hasSet {
-			recorder.Eventf("Normal", "ModelProgressing", "Model is progressing")
+			recorder.Eventf(corev1.EventTypeNormal, "ModelProgressing", "Model is progressing")
 			return operator.RequeueAfter(time.Second)
 		}
 	}
 
-	return nil
+	return operator.NewReconcilers(
+		operator.NewPVCReconciler(r.reconcilePVC),
+	).Reconcile(ctx, req, m)
 }
 
 // SetupWithManager sets up the controller with the Manager.
@@ -103,5 +106,10 @@ func (r *ModelReconciler) SetupWithManager(mgr ctrl.Manager) error {
 }
 
 func (r *ModelReconciler) reconcilePVC(ctx context.Context, namespace string, name string, m *llmv1alpha1.Model) error {
+	modelStorageClass := m.Spec.StorageClassName
+	modelPVC := m.Spec.PersistentVolumeClain
+	modelPV := m.Spec.PersistentVolume
+
+	_, _ = model.EnsureImageStorePVCCreated(ctx, namespace, *modelStorageClass, modelPVC, modelPV)
 	return nil
 }

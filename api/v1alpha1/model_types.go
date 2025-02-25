@@ -57,9 +57,12 @@ type ModelSpec struct {
 	// +optional
 	StorageClassName *string `json:"storageClassName,omitempty" protobuf:"bytes,6,opt,name=storageClassName"`
 
-	// spec defines a specification of a persistent volume owned by the cluster.
+	// PersistentVolumeClaimVolumeSource references the user's PVC in the same namespace.
+	// This volume finds the bound PV and mounts that volume for the pod. A
+	// PersistentVolumeClaimVolumeSource is, essentially, a wrapper around another
+	// type of volume that is owned by someone else (the system).
 	// +optional
-	PersistentVolumeClain *corev1.PersistentVolumeClaimSpec `json:"persistentVolumeClaim,omitempty" protobuf:"bytes,7,opt,name=persistentVolumeClaim"`
+	PersistentVolumeClain *corev1.PersistentVolumeClaimVolumeSource `json:"persistentVolumeClaim,omitempty" protobuf:"bytes,7,opt,name=persistentVolumeClaim"`
 
 	// spec defines a specification of a persistent volume owned by the cluster.
 	// Provisioned by an administrator.
