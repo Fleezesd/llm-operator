@@ -95,6 +95,7 @@ func (r *ModelReconciler) reconcile(ctx context.Context, req ctrl.Request, m *ll
 
 	return operator.NewReconcilers(
 		operator.NewPVCReconciler(r.reconcilePVC),
+		operator.NewStatefulSetReconciler(r.reconcileStatefulSet),
 	).Reconcile(ctx, req, m)
 }
 
@@ -118,5 +119,17 @@ func (r *ModelReconciler) reconcilePVC(ctx context.Context, namespace string, na
 }
 
 func (r *ModelReconciler) reconcileStatefulSet(ctx context.Context, namespace string, name string, m *llmv1alpha1.Model) error {
+	_, err := model.EnsureImageStoreStatefulsetCreated(ctx, namespace, m)
+	if err != nil {
+		return err
+	}
+	statefulSetReady, err := model.IsImageStoreStatefulSetReady(ctx, namespace)
+	if err != nil {
+		return err
+	}
+	if !statefulSetReady {
+		// requeue to retry reconcile later
+		return operator.RequeueAfter(time.Second * 5)
+	}
 	return nil
 }

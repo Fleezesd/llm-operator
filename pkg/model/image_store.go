@@ -97,7 +97,7 @@ func EnsureImageStoreStatefulsetCreated(
 	client := ClientFromContext(ctx)
 	modelRecorder := WrappedRecorderFromContext[*llmv1alpha1.Model](ctx)
 
-	statefulSet, err := getImageStoreStatuefulset(ctx, client, namespace)
+	statefulSet, err := getImageStoreStatuefulSet(ctx, client, namespace)
 	if err != nil {
 		return nil, err
 	}
@@ -154,7 +154,27 @@ func EnsureImageStoreStatefulsetCreated(
 	return statefulSet, nil
 }
 
-func getImageStoreStatuefulset(ctx context.Context, client client.Client, namespace string) (*appsv1.StatefulSet, error) {
+func IsImageStoreStatefulSetReady(ctx context.Context, namespace string) (bool, error) {
+	log := log.FromContext(ctx)
+	context := ClientFromContext(ctx)
+	modelRecorder := WrappedRecorderFromContext[*llmv1alpha1.Model](ctx)
+
+	statefulSet, err := getImageStoreStatuefulSet(ctx, context, namespace)
+	if err != nil {
+		return false, err
+	}
+	if statefulSet == nil {
+		return false, nil
+	}
+	if statefulSet.Status.ReadyReplicas == 1 {
+		return true, nil
+	}
+	log.Info("waiting for image store statefulSet to be ready!", "statefulSet", statefulSet)
+	modelRecorder.Event(corev1.EventTypeNormal, "WaitingForImageStoreStatefulSet", "Waiting for image store stateful set to be ready")
+	return false, nil
+}
+
+func getImageStoreStatuefulSet(ctx context.Context, client client.Client, namespace string) (*appsv1.StatefulSet, error) {
 	var statefulSet appsv1.StatefulSet
 	err := client.Get(ctx, types.NamespacedName{Namespace: namespace, Name: ImageStoreStatefulSetName}, &statefulSet)
 	if err != nil {
