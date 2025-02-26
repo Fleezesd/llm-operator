@@ -110,6 +110,13 @@ func (r *ModelReconciler) reconcilePVC(ctx context.Context, namespace string, na
 	modelPVC := m.Spec.PersistentVolumeClain
 	modelPV := m.Spec.PersistentVolume
 
-	_, _ = model.EnsureImageStorePVCCreated(ctx, namespace, *modelStorageClass, modelPVC, modelPV)
+	_, err := model.EnsureImageStorePVCCreated(ctx, namespace, *modelStorageClass, modelPVC, modelPV)
+	if err != nil {
+		return err
+	}
+	return nil
+}
+
+func (r *ModelReconciler) reconcileStatefulSet(ctx context.Context, namespace string, name string, m *llmv1alpha1.Model) error {
 	return nil
 }

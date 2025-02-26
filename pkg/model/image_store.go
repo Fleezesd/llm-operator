@@ -4,6 +4,8 @@ import (
 	"context"
 
 	llmv1alpha1 "github.com/fleezesd/llm-operator/api/v1alpha1"
+	"github.com/samber/lo"
+	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/api/resource"
@@ -15,7 +17,7 @@ import (
 
 const (
 	ImageStorePVCName         = "ollama-models-store-pvc"
-	ImageStoreStatefulsetName = "ollama-models-store"
+	ImageStoreStatefulSetName = "ollama-models-store-statefulset"
 )
 
 func EnsureImageStorePVCCreated(
@@ -46,10 +48,10 @@ func EnsureImageStorePVCCreated(
 
 	pvc = &corev1.PersistentVolumeClaim{
 		ObjectMeta: metav1.ObjectMeta{
-			Name:      ImageStorePVCName,
-			Namespace: namespace,
-			Labels:    ImageStoreLabels(),
-			// todo: add annonations
+			Name:        ImageStorePVCName,
+			Namespace:   namespace,
+			Labels:      ImageStoreLabels(),
+			Annotations: ImageStoreAnnonations(ImageStorePVCName),
 		},
 		Spec: corev1.PersistentVolumeClaimSpec{
 			Resources: corev1.ResourceRequirements{
@@ -70,6 +72,7 @@ func EnsureImageStorePVCCreated(
 	return pvc, nil
 }
 
+// getImageStorePVC returns the image store PVC if it exists, nil otherwise
 func getImageStorePVC(ctx context.Context, client client.Client, namespace string) (*corev1.PersistentVolumeClaim, error) {
 	var pvc corev1.PersistentVolumeClaim
 	err := client.Get(ctx, types.NamespacedName{
@@ -85,9 +88,93 @@ func getImageStorePVC(ctx context.Context, client client.Client, namespace strin
 	return &pvc, err
 }
 
+func EnsureImageStoreStatefulsetCreated(
+	ctx context.Context,
+	namespace string,
+	m *llmv1alpha1.Model,
+) (*appsv1.StatefulSet, error) {
+	log := log.FromContext(ctx)
+	client := ClientFromContext(ctx)
+	modelRecorder := WrappedRecorderFromContext[*llmv1alpha1.Model](ctx)
+
+	statefulSet, err := getImageStoreStatuefulset(ctx, client, namespace)
+	if err != nil {
+		return nil, err
+	}
+	if statefulSet != nil {
+		return statefulSet, nil
+	}
+
+	log.Info("no existing image store stateful set found, creating one...")
+	statefulSet = &appsv1.StatefulSet{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:        ImageStoreStatefulSetName,
+			Namespace:   namespace,
+			Labels:      ImageStoreLabels(),
+			Annotations: ImageStoreAnnonations(ImageStoreStatefulSetName),
+		},
+		Spec: appsv1.StatefulSetSpec{
+			Replicas: lo.ToPtr[int32](1),
+			Selector: &metav1.LabelSelector{
+				MatchLabels: ImageStoreLabels(),
+			},
+			Template: corev1.PodTemplateSpec{
+				ObjectMeta: metav1.ObjectMeta{
+					Labels:      ImageStoreLabels(),
+					Annotations: ImageStoreAnnonations(ImageStoreStatefulSetName),
+				},
+				Spec: corev1.PodSpec{
+					Containers: []corev1.Container{
+						NewOllamaServerContainer(false, corev1.ResourceRequirements{}, m.Spec.ExtraEnvFrom, m.Spec.Env),
+					},
+					RestartPolicy: corev1.RestartPolicyAlways,
+					Volumes: []corev1.Volume{
+						{
+							Name: "image-storage",
+							VolumeSource: corev1.VolumeSource{
+								PersistentVolumeClaim: &corev1.PersistentVolumeClaimVolumeSource{
+									ClaimName: ImageStorePVCName,
+									ReadOnly:  false,
+								},
+							},
+						},
+					},
+				},
+			},
+		},
+	}
+
+	err = client.Create(ctx, statefulSet)
+	if err != nil {
+		return nil, err
+	}
+	log.Info("created image store statefulset", "statefulset", statefulSet)
+	modelRecorder.Event(corev1.EventTypeNormal, "ProvisionedImageStoreStatefulSet", "Provisioned image store stateful set")
+
+	return statefulSet, nil
+}
+
+func getImageStoreStatuefulset(ctx context.Context, client client.Client, namespace string) (*appsv1.StatefulSet, error) {
+	var statefulSet appsv1.StatefulSet
+	err := client.Get(ctx, types.NamespacedName{Namespace: namespace, Name: ImageStoreStatefulSetName}, &statefulSet)
+	if err != nil {
+		if errors.IsNotFound(err) {
+			return nil, nil
+		}
+		return nil, err
+	}
+	return &statefulSet, nil
+}
+
 func ImageStoreLabels() map[string]string {
 	return map[string]string{
 		"app":                "ollama-image-store",
-		"ollama.fleezesd.io": "iamge-store",
+		"ollama.fleezesd.io": "image-store",
+	}
+}
+
+func ImageStoreAnnonations(name string) map[string]string {
+	return map[string]string{
+		"ollama.fleezesd.io": name,
 	}
 }
