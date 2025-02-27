@@ -11,13 +11,15 @@ import (
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
+	"k8s.io/apimachinery/pkg/util/intstr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/log"
 )
 
 const (
 	ImageStorePVCName         = "ollama-models-store-pvc"
-	ImageStoreStatefulSetName = "ollama-models-store-statefulset"
+	ImageStoreStatefulSetName = "ollama-models-store"
+	ImageStoreServiceName     = "ollama-models-store"
 )
 
 func EnsureImageStorePVCCreated(
@@ -88,7 +90,7 @@ func getImageStorePVC(ctx context.Context, client client.Client, namespace strin
 	return &pvc, err
 }
 
-func EnsureImageStoreStatefulsetCreated(
+func EnsureImageStoreStatefulSetCreated(
 	ctx context.Context,
 	namespace string,
 	m *llmv1alpha1.Model,
@@ -166,9 +168,11 @@ func IsImageStoreStatefulSetReady(ctx context.Context, namespace string) (bool, 
 	if statefulSet == nil {
 		return false, nil
 	}
+	// check if statefulSet is ready
 	if statefulSet.Status.ReadyReplicas == 1 {
 		return true, nil
 	}
+	// statefulSet is created but not ready, wait for it to be ready
 	log.Info("waiting for image store statefulSet to be ready!", "statefulSet", statefulSet)
 	modelRecorder.Event(corev1.EventTypeNormal, "WaitingForImageStoreStatefulSet", "Waiting for image store stateful set to be ready")
 	return false, nil
@@ -184,6 +188,101 @@ func getImageStoreStatuefulSet(ctx context.Context, client client.Client, namesp
 		return nil, err
 	}
 	return &statefulSet, nil
+}
+
+func EnsureImageStoreServiceReady(
+	ctx context.Context,
+	namespace string,
+	statefulSet *appsv1.StatefulSet,
+) (*corev1.Service, error) {
+	log := log.FromContext(ctx)
+	client := ClientFromContext(ctx)
+	modelRecorder := WrappedRecorderFromContext[*llmv1alpha1.Model](ctx)
+
+	service, err := getImageStoreService(ctx, client, namespace)
+	if err != nil {
+		return nil, err
+	}
+	if service != nil {
+		return service, nil
+	}
+
+	// no service found, create it
+	service = &corev1.Service{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:        ImageStoreServiceName,
+			Namespace:   namespace,
+			Labels:      ImageStoreLabels(),
+			Annotations: ImageStoreAnnonations(ImageStoreServiceName),
+			OwnerReferences: []metav1.OwnerReference{
+				{
+					APIVersion:         "apps/v1",
+					Kind:               "StatefulSet",
+					Name:               statefulSet.Name,
+					UID:                statefulSet.UID,
+					BlockOwnerDeletion: lo.ToPtr(true),
+				},
+			},
+		},
+		Spec: corev1.ServiceSpec{
+			Type: corev1.ServiceTypeClusterIP,
+			Ports: []corev1.ServicePort{
+				{
+					Name:       "ollama",
+					Protocol:   corev1.ProtocolTCP,
+					Port:       11434,
+					TargetPort: intstr.FromInt(11434),
+				},
+			},
+			Selector: ImageStoreLabels(),
+		},
+	}
+	err = client.Create(ctx, service)
+	if err != nil {
+		return nil, err
+	}
+
+	log.Info("created image store service", "service", service)
+	modelRecorder.Event(corev1.EventTypeNormal, "ProvisionedImageStoreService", "Provisioned image store service")
+
+	return service, nil
+}
+
+func getImageStoreService(ctx context.Context, client client.Client, namespace string) (*corev1.Service, error) {
+	var service corev1.Service
+	err := client.Get(ctx, types.NamespacedName{Namespace: namespace, Name: ImageStoreServiceName}, &service)
+	if err != nil {
+		if errors.IsNotFound(err) {
+			return nil, nil
+		}
+		return nil, err
+	}
+	return &service, nil
+}
+
+func IsImageStoreServiceReady(
+	ctx context.Context,
+	namespace string,
+) (bool, error) {
+	log := log.FromContext(ctx)
+	client := ClientFromContext(ctx)
+	modelRecorder := WrappedRecorderFromContext[*llmv1alpha1.Model](ctx)
+
+	service, err := getImageStoreService(ctx, client, namespace)
+	if err != nil {
+		return false, err
+	}
+	if service == nil {
+		return false, nil
+	}
+	if service.Spec.ClusterIP != "" {
+		return true, nil
+	}
+
+	log.Info("waiting for image store service to be ready", "service", service, "due to no ClusterIP is set")
+	modelRecorder.Event(corev1.EventTypeNormal, "WaitingForImageStoreService", "Waiting for image store service to become ready")
+
+	return false, nil
 }
 
 func ImageStoreLabels() map[string]string {

@@ -96,6 +96,7 @@ func (r *ModelReconciler) reconcile(ctx context.Context, req ctrl.Request, m *ll
 	return operator.NewReconcilers(
 		operator.NewPVCReconciler(r.reconcilePVC),
 		operator.NewStatefulSetReconciler(r.reconcileStatefulSet),
+		operator.NewServiceReconciler(r.reconcileService),
 	).Reconcile(ctx, req, m)
 }
 
@@ -106,6 +107,7 @@ func (r *ModelReconciler) SetupWithManager(mgr ctrl.Manager) error {
 		Complete(r)
 }
 
+// renconcilePVC ensure image store pvc iscreated
 func (r *ModelReconciler) reconcilePVC(ctx context.Context, namespace string, name string, m *llmv1alpha1.Model) error {
 	modelStorageClass := m.Spec.StorageClassName
 	modelPVC := m.Spec.PersistentVolumeClain
@@ -118,8 +120,10 @@ func (r *ModelReconciler) reconcilePVC(ctx context.Context, namespace string, na
 	return nil
 }
 
+// renconcileSteatefulSet ensure image store statefulset is created and Ready
 func (r *ModelReconciler) reconcileStatefulSet(ctx context.Context, namespace string, name string, m *llmv1alpha1.Model) error {
-	_, err := model.EnsureImageStoreStatefulsetCreated(ctx, namespace, m)
+	// ensure image store statefulset is created
+	_, err := model.EnsureImageStoreStatefulSetCreated(ctx, namespace, m)
 	if err != nil {
 		return err
 	}
@@ -129,6 +133,25 @@ func (r *ModelReconciler) reconcileStatefulSet(ctx context.Context, namespace st
 	}
 	if !statefulSetReady {
 		// requeue to retry reconcile later
+		return operator.RequeueAfter(time.Second * 5)
+	}
+	return nil
+}
+
+func (r *ModelReconciler) reconcileService(ctx context.Context, namespace string, name string, m *llmv1alpha1.Model) error {
+	statefulSet, err := model.EnsureImageStoreStatefulSetCreated(ctx, namespace, m)
+	if err != nil {
+		return err
+	}
+	_, err = model.EnsureImageStoreServiceReady(ctx, namespace, statefulSet)
+	if err != nil {
+		return err
+	}
+	serviceReady, err := model.IsImageStoreServiceReady(ctx, namespace)
+	if err != nil {
+		return err
+	}
+	if !serviceReady {
 		return operator.RequeueAfter(time.Second * 5)
 	}
 	return nil

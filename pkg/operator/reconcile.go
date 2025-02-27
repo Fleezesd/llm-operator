@@ -54,3 +54,12 @@ func NewStatefulSetReconciler[T runtime.Object](fn ReconcileHandler[T]) SubRecon
 		reconcile: fn,
 	}
 }
+
+func NewServiceReconciler[T runtime.Object](fn ReconcileHandler[T]) SubReconciler[T] {
+	return SubReconciler[T]{
+		verison:   "v1",
+		group:     "core",
+		kind:      "Service",
+		reconcile: fn,
+	}
+}
