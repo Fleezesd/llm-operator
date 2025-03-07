@@ -19,6 +19,8 @@ package base
 import (
 	"context"
 
+	corev1 "k8s.io/api/core/v1"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
 	ctrl "sigs.k8s.io/controller-runtime"
@@ -26,9 +28,12 @@ import (
 	ctrlutil "sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 	"sigs.k8s.io/controller-runtime/pkg/log"
 
+	"errors"
+
 	basev1alpha1 "github.com/fleezesd/llm-operator/api/base/v1alpha1"
+	"github.com/fleezesd/llm-operator/pkg/llms"
+	"github.com/fleezesd/llm-operator/pkg/llms/models/openai"
 	"github.com/go-logr/logr"
-	"github.com/pkg/errors"
 	"github.com/samber/lo"
 )
 
@@ -95,7 +100,7 @@ func (r *PromptReconciler) SetupWithManager(mgr ctrl.Manager) error {
 
 func (r *PromptReconciler) CallLLM(ctx context.Context, logger logr.Logger, prompt *basev1alpha1.Prompt) error {
 	if lo.IsNil(prompt.Spec.LLM) {
-		return errors.Errorf("no llm configuration provider")
+		return errors.New("no llm configuration provider")
 	}
 
 	llm := &basev1alpha1.LLM{}
@@ -106,7 +111,47 @@ func (r *PromptReconciler) CallLLM(ctx context.Context, logger logr.Logger, prom
 		return err
 	}
 
-	// todo: make langchain with llm
-	return nil
+	apiKey, err := llm.AuthAPIKey(ctx, r.Client)
+	if err != nil {
+		return r.UpdateStatus(ctx, prompt, nil, err)
+	}
 
+	// llm call
+	var llmClient llms.LLM
+	var callData []byte
+	switch llm.Spec.Type {
+	case llms.OpenAI:
+		llmClient, err = openai.NewOpenAI(apiKey, llm.Spec.Endpoint.URL)
+		if err != nil {
+			return r.UpdateStatus(ctx, prompt, nil, err)
+		}
+	}
+
+	resp, err := llmClient.Call(callData)
+	if err != nil {
+		return err
+	}
+	return r.UpdateStatus(ctx, prompt, resp, nil)
+}
+
+func (r *PromptReconciler) UpdateStatus(ctx context.Context, prompt *basev1alpha1.Prompt,
+	response llms.Response, err error) error {
+	promptDeepCopy := prompt.DeepCopy()
+	newCond := basev1alpha1.Condition{
+		Type:               basev1alpha1.TypeDone,
+		Status:             corev1.ConditionTrue,
+		LastTransitionTime: metav1.Now(),
+		Reason:             basev1alpha1.ReasonReconcileSuccess,
+		Message:            "Finished",
+	}
+	if err != nil {
+		newCond.Status = corev1.ConditionFalse
+		newCond.Reason = basev1alpha1.ReasonReconcileError
+		newCond.Message = err.Error()
+	}
+	promptDeepCopy.Status.SetConditions(newCond)
+	if response != nil {
+		promptDeepCopy.Status.Data = response.Bytes()
+	}
+	return errors.Join(err, r.Client.Status().Update(ctx, promptDeepCopy))
 }
