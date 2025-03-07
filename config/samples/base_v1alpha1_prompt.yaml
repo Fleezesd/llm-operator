@@ -1,0 +1,12 @@
+apiVersion: base.fleezesd.io/v1alpha1
+kind: Prompt
+metadata:
+  labels:
+    app.kubernetes.io/name: prompt
+    app.kubernetes.io/instance: prompt-sample
+    app.kubernetes.io/part-of: llm-operator
+    app.kubernetes.io/managed-by: kustomize
+    app.kubernetes.io/created-by: llm-operator
+  name: prompt-sample
+spec:
+  # TODO(user): Add fields here

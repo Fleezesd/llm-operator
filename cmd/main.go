@@ -34,8 +34,10 @@ import (
 	metricsserver "sigs.k8s.io/controller-runtime/pkg/metrics/server"
 	"sigs.k8s.io/controller-runtime/pkg/webhook"
 
+	basev1alpha1 "github.com/fleezesd/llm-operator/api/base/v1alpha1"
 	llmv1alpha1 "github.com/fleezesd/llm-operator/api/v1alpha1"
 	"github.com/fleezesd/llm-operator/internal/controller"
+	basecontroller "github.com/fleezesd/llm-operator/internal/controller/base"
 	//+kubebuilder:scaffold:imports
 )
 
@@ -48,6 +50,7 @@ func init() {
 	utilruntime.Must(clientgoscheme.AddToScheme(scheme))
 
 	utilruntime.Must(llmv1alpha1.AddToScheme(scheme))
+	utilruntime.Must(basev1alpha1.AddToScheme(scheme))
 	//+kubebuilder:scaffold:scheme
 }
 
@@ -118,6 +121,20 @@ func main() {
 		Recorder: mgr.GetEventRecorderFor("llm-model-controller"),
 	}).SetupWithManager(mgr); err != nil {
 		setupLog.Error(err, "unable to create controller", "controller", "Model")
+		os.Exit(1)
+	}
+	if err = (&basecontroller.LLMReconciler{
+		Client: mgr.GetClient(),
+		Scheme: mgr.GetScheme(),
+	}).SetupWithManager(mgr); err != nil {
+		setupLog.Error(err, "unable to create controller", "controller", "LLM")
+		os.Exit(1)
+	}
+	if err = (&basecontroller.PromptReconciler{
+		Client: mgr.GetClient(),
+		Scheme: mgr.GetScheme(),
+	}).SetupWithManager(mgr); err != nil {
+		setupLog.Error(err, "unable to create controller", "controller", "Prompt")
 		os.Exit(1)
 	}
 	//+kubebuilder:scaffold:builder

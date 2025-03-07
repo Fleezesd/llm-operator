@@ -5,6 +5,7 @@
 domain: fleezesd.io
 layout:
 - go.kubebuilder.io/v4
+multigroup: true
 projectName: llm-operator
 repo: github.com/fleezesd/llm-operator
 resources:
@@ -16,5 +17,23 @@ resources:
   group: llm
   kind: Model
   path: github.com/fleezesd/llm-operator/api/v1alpha1
+  version: v1alpha1
+- api:
+    crdVersion: v1
+    namespaced: true
+  controller: true
+  domain: fleezesd.io
+  group: base
+  kind: LLM
+  path: github.com/fleezesd/llm-operator/api/base/v1alpha1
+  version: v1alpha1
+- api:
+    crdVersion: v1
+    namespaced: true
+  controller: true
+  domain: fleezesd.io
+  group: base
+  kind: Prompt
+  path: github.com/fleezesd/llm-operator/api/base/v1alpha1
   version: v1alpha1
 version: "3"
