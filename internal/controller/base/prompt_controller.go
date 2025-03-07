@@ -27,6 +27,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	ctrlutil "sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 	"sigs.k8s.io/controller-runtime/pkg/log"
+	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
 	"errors"
 
@@ -88,6 +89,12 @@ func (r *PromptReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctr
 		return ctrl.Result{}, nil
 	}
 
+	err := r.CallLLM(ctx, logger, prompt)
+	if err != nil {
+		logger.Error(err, "Failed to call llm")
+		return reconcile.Result{}, err
+	}
+
 	return ctrl.Result{}, nil
 }
 
@@ -99,37 +106,55 @@ func (r *PromptReconciler) SetupWithManager(mgr ctrl.Manager) error {
 }
 
 func (r *PromptReconciler) CallLLM(ctx context.Context, logger logr.Logger, prompt *basev1alpha1.Prompt) error {
-	if lo.IsNil(prompt.Spec.LLM) {
-		return errors.New("no llm configuration provider")
-	}
-
-	llm := &basev1alpha1.LLM{}
-	if err := r.Get(ctx, types.NamespacedName{
-		Name:      prompt.Spec.LLM.Name,
-		Namespace: prompt.Namespace,
-	}, llm); err != nil {
+	if err := r.validatePrompt(prompt); err != nil {
 		return err
 	}
-
+	llm, err := r.getLLMConfig(ctx, prompt)
+	if err != nil {
+		return err
+	}
 	apiKey, err := llm.AuthAPIKey(ctx, r.Client)
 	if err != nil {
 		return r.UpdateStatus(ctx, prompt, nil, err)
 	}
+	llmClient, err := r.createLLMClient(llm, apiKey)
+	if err != nil {
+		return r.UpdateStatus(ctx, prompt, nil, err)
+	}
+	return r.executeLLMCall(ctx, prompt, llmClient)
+}
 
-	// llm call
-	var llmClient llms.LLM
-	var callData []byte
+func (r *PromptReconciler) validatePrompt(prompt *basev1alpha1.Prompt) error {
+	if lo.IsNil(prompt.Spec.LLM) {
+		return errors.New("no llm configuration provider")
+	}
+	return nil
+}
+
+func (r *PromptReconciler) getLLMConfig(ctx context.Context, prompt *basev1alpha1.Prompt) (*basev1alpha1.LLM, error) {
+	llm := &basev1alpha1.LLM{}
+	err := r.Get(ctx, types.NamespacedName{
+		Name:      prompt.Spec.LLM.Name,
+		Namespace: prompt.Namespace,
+	}, llm)
+	return llm, err
+}
+
+func (r *PromptReconciler) createLLMClient(llm *basev1alpha1.LLM, apiKey string) (llms.LLM, error) {
 	switch llm.Spec.Type {
 	case llms.OpenAI:
-		llmClient, err = openai.NewOpenAI(apiKey, llm.Spec.Endpoint.URL)
-		if err != nil {
-			return r.UpdateStatus(ctx, prompt, nil, err)
-		}
+		return openai.NewOpenAI(apiKey, llm.Spec.Endpoint.URL)
+	default:
+		return nil, errors.New("unsupported LLM type")
 	}
+}
 
+func (r *PromptReconciler) executeLLMCall(ctx context.Context, prompt *basev1alpha1.Prompt, llmClient llms.LLM) error {
+	var callData []byte
+	// todo: need prompt marshal for call llm and add model params
 	resp, err := llmClient.Call(callData)
 	if err != nil {
-		return err
+		return r.UpdateStatus(ctx, prompt, resp, err)
 	}
 	return r.UpdateStatus(ctx, prompt, resp, nil)
 }

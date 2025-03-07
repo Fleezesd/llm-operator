@@ -30,7 +30,11 @@ type LLMSpec struct {
 	Type llms.LLMType `json:"type"`
 
 	// Provider defines the provider info which provide this llm service
-	Provider `json:"provider, omitempty"`
+	Provider `json:"provider,omitempty"`
+
+	// Models provided by this LLM
+	// If not set,we will use default model list based on LLMType
+	Models []string `json:"models,omitempty"`
 }
 
 // LLMStatus defines the observed state of LLM
