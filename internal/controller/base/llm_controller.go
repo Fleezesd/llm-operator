@@ -22,6 +22,7 @@ import (
 	"k8s.io/apimachinery/pkg/runtime"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+	ctrlutil "sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 	"sigs.k8s.io/controller-runtime/pkg/log"
 
 	basev1alpha1 "github.com/fleezesd/llm-operator/api/base/v1alpha1"
@@ -50,8 +51,47 @@ func (r *LLMReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.R
 	_ = log.FromContext(ctx)
 
 	// TODO(user): your logic here
+	logger := log.FromContext(ctx)
+	logger.Info("Reconciling LLM resource")
 
-	return ctrl.Result{}, nil
+	instance := basev1alpha1.LLM{}
+	if err := r.Get(ctx, req.NamespacedName, &instance); err != nil {
+		logger.V(1).Info("Failed to get LLM")
+		return ctrl.Result{}, client.IgnoreNotFound(err)
+	}
+	if instance.GetDeletionTimestamp() != nil && ctrlutil.ContainsFinalizer(instance, basev1alpha1.Finalizer) {
+		logger.Info("Performing Finalizer Operations for LLM before delete CR")
+		// TODO perform the finalizer operations here, for example: remove data?
+		logger.Info("Removing Finalizer for LLM after successfully performing the operations")
+		ctrlutil.RemoveFinalizer(instance, basev1alpha1.Finalizer)
+		if err := r.Update(ctx, instance); err != nil {
+			logger.Error(err, "Failed to remove finalizer for LLM")
+			return ctrl.Result{}, err
+		}
+		logger.Info("Remove LLM done")
+		return ctrl.Result{}, nil
+	}
+	if instance.Labels == nil {
+		instance.Labels = make(map[string]string)
+	}
+	providerType := instance.Spec.Provider.GetType()
+	if _type, ok := instance.Labels[basev1alpha1.ProviderLabel]; !ok || _type != string(providerType) {
+		instance.Labels[basev1alpha1.ProviderLabel] = string(providerType)
+		err := r.Client.Update(ctx, instance)
+		if err != nil {
+			logger.Error(err, "failed to update llm labels", "providerType", providerType)
+		}
+		return ctrl.Result{Requeue: true}, err
+	}
+
+	err := r.CheckLLM(ctx, logger, instance)
+	if err != nil {
+		logger.Error(err, "Failed to check LLM")
+		// Update conditioned status
+		return ctrl.Result{RequeueAfter: waitMedium}, err
+	}
+
+	return ctrl.Result{RequeueAfter: waitLonger}, nil
 }
 
 // SetupWithManager sets up the controller with the Manager.

@@ -2,6 +2,7 @@ package openai
 
 import (
 	"context"
+	"fmt"
 	"time"
 
 	"github.com/fleezesd/llm-operator/pkg/llms"
@@ -15,6 +16,16 @@ const (
 	OpenAIModelAPIURL    = "https://api.openai.com/v1"
 	OpenAIDefaultTimeout = 300 * time.Second
 )
+
+type Method string
+
+const (
+	OpenAIInvoke Method = "invoke"
+)
+
+func BuildAPIURL(model string, method Method) string {
+	return fmt.Sprintf("%s/%s/%s", OpenAIModelAPIURL, model, method)
+}
 
 var _ llms.LLM = (*OpenAI)(nil)
 
