@@ -18,6 +18,7 @@ package base
 
 import (
 	"context"
+	"errors"
 
 	"k8s.io/apimachinery/pkg/runtime"
 	ctrl "sigs.k8s.io/controller-runtime"
@@ -26,6 +27,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/log"
 
 	basev1alpha1 "github.com/fleezesd/llm-operator/api/base/v1alpha1"
+	"github.com/go-logr/logr"
 )
 
 // LLMReconciler reconciles a LLM object
@@ -54,11 +56,24 @@ func (r *LLMReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.R
 	logger := log.FromContext(ctx)
 	logger.Info("Reconciling LLM resource")
 
-	instance := basev1alpha1.LLM{}
-	if err := r.Get(ctx, req.NamespacedName, &instance); err != nil {
+	instance := &basev1alpha1.LLM{}
+	if err := r.Get(ctx, req.NamespacedName, instance); err != nil {
 		logger.V(1).Info("Failed to get LLM")
 		return ctrl.Result{}, client.IgnoreNotFound(err)
 	}
+
+	// add finalizer
+	if newAdded := ctrlutil.AddFinalizer(instance, basev1alpha1.Finalizer); newAdded {
+		logger.Info("Try to add finalizer for LLM")
+		if err := r.Update(ctx, instance); err != nil {
+			logger.Error(err, "Failed to update LLM to add finalizer, will try again later")
+			return ctrl.Result{}, err
+		}
+		logger.Info("Adding Finalizer for LLM done")
+		return ctrl.Result{Requeue: true}, nil
+	}
+
+	// check if the lllm instance is marked to be deleted
 	if instance.GetDeletionTimestamp() != nil && ctrlutil.ContainsFinalizer(instance, basev1alpha1.Finalizer) {
 		logger.Info("Performing Finalizer Operations for LLM before delete CR")
 		// TODO perform the finalizer operations here, for example: remove data?
@@ -71,6 +86,8 @@ func (r *LLMReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.R
 		logger.Info("Remove LLM done")
 		return ctrl.Result{}, nil
 	}
+
+	// check label
 	if instance.Labels == nil {
 		instance.Labels = make(map[string]string)
 	}
@@ -84,6 +101,7 @@ func (r *LLMReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.R
 		return ctrl.Result{Requeue: true}, err
 	}
 
+	// check llm
 	err := r.CheckLLM(ctx, logger, instance)
 	if err != nil {
 		logger.Error(err, "Failed to check LLM")
@@ -92,6 +110,53 @@ func (r *LLMReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.R
 	}
 
 	return ctrl.Result{RequeueAfter: waitLonger}, nil
+}
+
+func (r *LLMReconciler) CheckLLM(ctx context.Context, logger logr.Logger, instance *basev1alpha1.LLM) error {
+	logger.Info("Checking LLM resource")
+
+	switch instance.Spec.Provider.GetType() {
+	case basev1alpha1.ProviderType3rdParty:
+		return r.check3rdPartyLLM(ctx, logger, instance)
+	case basev1alpha1.ProviderTypeWorker:
+		return r.checkWorkerLLM(ctx, logger, instance)
+	}
+	return nil
+}
+
+func (r *LLMReconciler) check3rdPartyLLM(ctx context.Context, logger logr.Logger, instance *basev1alpha1.LLM) error {
+	logger.Info("Checking 3rd party LLM resource")
+
+	var err error
+	// var msg string
+
+	_, err = instance.AuthAPIKey(ctx, r.Client)
+	if err != nil {
+		return r.UpdateStatus(ctx, instance, "", err)
+	}
+	// todo: check 3rd party llm
+
+	return nil
+}
+
+func (r *LLMReconciler) UpdateStatus(ctx context.Context, instance *basev1alpha1.LLM, t interface{}, err error) error {
+	instanceCopy := instance.DeepCopy()
+	var newCondition basev1alpha1.Condition
+	if err != nil {
+		newCondition = instance.ErrorCondition(err.Error())
+	} else {
+		msg, ok := t.(string)
+		if !ok {
+			msg = statusNilResponse
+		}
+		newCondition = instance.ReadyCondition(msg)
+	}
+	instanceCopy.Status.SetConditions(newCondition)
+	return errors.Join(err, r.Client.Status().Update(ctx, instanceCopy))
+}
+
+func (r *LLMReconciler) checkWorkerLLM(ctx context.Context, logger logr.Logger, instance *basev1alpha1.LLM) error {
+	return nil
 }
 
 // SetupWithManager sets up the controller with the Manager.

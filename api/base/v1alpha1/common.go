@@ -11,12 +11,31 @@ import (
 
 const (
 	// Finalizer is the name of the finalizer added to objects to ensure they are cleaned up.
-	Finalizer = Group + "/finalizer"
+	Finalizer     = Group + "/finalizer"
+	ProviderLabel = Group + "/provider"
+)
+
+type ProviderType string
+
+const (
+	ProviderTypeUnknown  ProviderType = "unknown"
+	ProviderType3rdParty ProviderType = "3rdParty"
+	ProviderTypeWorker   ProviderType = "worker"
 )
 
 type Provider struct {
-	Endpoint *Endpoint                   `json:"endpoint,omitempty"`
-	Worker   corev1.TypedObjectReference `json:"worker,omitempty"`
+	Endpoint *Endpoint                    `json:"endpoint,omitempty"`
+	Worker   *corev1.TypedObjectReference `json:"worker,omitempty"`
+}
+
+func (p Provider) GetType() ProviderType {
+	if p.Endpoint != nil {
+		return ProviderType3rdParty
+	}
+	if p.Worker != nil {
+		return ProviderTypeWorker
+	}
+	return ProviderTypeUnknown
 }
 
 // Endpoint represents a reachable API endpoint.
