@@ -1,0 +1,12 @@
+apiVersion: base.fleezesd.io/v1alpha1
+kind: Worker
+metadata:
+  labels:
+    app.kubernetes.io/name: worker
+    app.kubernetes.io/instance: worker-sample
+    app.kubernetes.io/part-of: llm-operator
+    app.kubernetes.io/managed-by: kustomize
+    app.kubernetes.io/created-by: llm-operator
+  name: worker-sample
+spec:
+  # TODO(user): Add fields here

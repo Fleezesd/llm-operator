@@ -38,12 +38,10 @@ func NewOpenAI(apiKey, baseURL string) (*OpenAI, error) {
 	if apiKey == "" {
 		return nil, errors.New("API key cannot be empty")
 	}
-
 	client := &OpenAI{
 		apiKey:  apiKey,
 		baseURL: lo.Ternary(baseURL == "", OpenAIModelAPIURL, baseURL),
 	}
-
 	return client, nil
 }
 
@@ -92,7 +90,7 @@ func (o *OpenAI) Validate(ctx context.Context, options ...langchainllms.CallOpti
 	return &Response{
 		Code:    200,
 		Data:    resp,
-		Msg:     "",
+		Msg:     "call openai model success",
 		Success: true,
 	}, nil
 }

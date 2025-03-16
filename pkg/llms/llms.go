@@ -14,6 +14,10 @@ const (
 )
 
 var (
+	OpenAIModels = []string{"gpt-3.5", "gpt-3.5-turbo"}
+)
+
+var (
 	DefaultOpenAIModel string = "gpt-3.5-turbo"
 )
 

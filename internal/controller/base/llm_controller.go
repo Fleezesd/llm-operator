@@ -19,15 +19,20 @@ package base
 import (
 	"context"
 	"errors"
+	"strings"
 
 	"k8s.io/apimachinery/pkg/runtime"
+	"k8s.io/apimachinery/pkg/types"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	ctrlutil "sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 	"sigs.k8s.io/controller-runtime/pkg/log"
 
 	basev1alpha1 "github.com/fleezesd/llm-operator/api/base/v1alpha1"
+	"github.com/fleezesd/llm-operator/pkg/llms"
+	"github.com/fleezesd/llm-operator/pkg/llms/models/openai"
 	"github.com/go-logr/logr"
+	langchainllms "github.com/tmc/langchaingo/llms"
 )
 
 // LLMReconciler reconciles a LLM object
@@ -50,22 +55,19 @@ type LLMReconciler struct {
 // For more details, check Reconcile and its Result here:
 // - https://pkg.go.dev/sigs.k8s.io/controller-runtime@v0.16.3/pkg/reconcile
 func (r *LLMReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
-	_ = log.FromContext(ctx)
-
-	// TODO(user): your logic here
 	logger := log.FromContext(ctx)
 	logger.Info("Reconciling LLM resource")
 
-	instance := &basev1alpha1.LLM{}
-	if err := r.Get(ctx, req.NamespacedName, instance); err != nil {
+	llm := &basev1alpha1.LLM{}
+	if err := r.Get(ctx, req.NamespacedName, llm); err != nil {
 		logger.V(1).Info("Failed to get LLM")
 		return ctrl.Result{}, client.IgnoreNotFound(err)
 	}
 
 	// add finalizer
-	if newAdded := ctrlutil.AddFinalizer(instance, basev1alpha1.Finalizer); newAdded {
+	if newAdded := ctrlutil.AddFinalizer(llm, basev1alpha1.Finalizer); newAdded {
 		logger.Info("Try to add finalizer for LLM")
-		if err := r.Update(ctx, instance); err != nil {
+		if err := r.Update(ctx, llm); err != nil {
 			logger.Error(err, "Failed to update LLM to add finalizer, will try again later")
 			return ctrl.Result{}, err
 		}
@@ -74,12 +76,12 @@ func (r *LLMReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.R
 	}
 
 	// check if the lllm instance is marked to be deleted
-	if instance.GetDeletionTimestamp() != nil && ctrlutil.ContainsFinalizer(instance, basev1alpha1.Finalizer) {
+	if llm.GetDeletionTimestamp() != nil && ctrlutil.ContainsFinalizer(llm, basev1alpha1.Finalizer) {
 		logger.Info("Performing Finalizer Operations for LLM before delete CR")
 		// TODO perform the finalizer operations here, for example: remove data?
 		logger.Info("Removing Finalizer for LLM after successfully performing the operations")
-		ctrlutil.RemoveFinalizer(instance, basev1alpha1.Finalizer)
-		if err := r.Update(ctx, instance); err != nil {
+		ctrlutil.RemoveFinalizer(llm, basev1alpha1.Finalizer)
+		if err := r.Update(ctx, llm); err != nil {
 			logger.Error(err, "Failed to remove finalizer for LLM")
 			return ctrl.Result{}, err
 		}
@@ -88,13 +90,13 @@ func (r *LLMReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.R
 	}
 
 	// check label
-	if instance.Labels == nil {
-		instance.Labels = make(map[string]string)
+	if llm.Labels == nil {
+		llm.Labels = make(map[string]string)
 	}
-	providerType := instance.Spec.Provider.GetType()
-	if _type, ok := instance.Labels[basev1alpha1.ProviderLabel]; !ok || _type != string(providerType) {
-		instance.Labels[basev1alpha1.ProviderLabel] = string(providerType)
-		err := r.Client.Update(ctx, instance)
+	providerType := llm.Spec.Provider.GetType()
+	if _type, ok := llm.Labels[basev1alpha1.ProviderLabel]; !ok || _type != string(providerType) {
+		llm.Labels[basev1alpha1.ProviderLabel] = string(providerType)
+		err := r.Client.Update(ctx, llm)
 		if err != nil {
 			logger.Error(err, "failed to update llm labels", "providerType", providerType)
 		}
@@ -102,16 +104,16 @@ func (r *LLMReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.R
 	}
 
 	// check llm
-	err := r.CheckLLM(ctx, logger, instance)
+	err := r.CheckLLM(ctx, logger, llm)
 	if err != nil {
 		logger.Error(err, "Failed to check LLM")
-		// Update conditioned status
 		return ctrl.Result{RequeueAfter: waitMedium}, err
 	}
 
 	return ctrl.Result{RequeueAfter: waitLonger}, nil
 }
 
+// CheckLLM checks if the LLM provider is ready
 func (r *LLMReconciler) CheckLLM(ctx context.Context, logger logr.Logger, instance *basev1alpha1.LLM) error {
 	logger.Info("Checking LLM resource")
 
@@ -124,19 +126,45 @@ func (r *LLMReconciler) CheckLLM(ctx context.Context, logger logr.Logger, instan
 	return nil
 }
 
-func (r *LLMReconciler) check3rdPartyLLM(ctx context.Context, logger logr.Logger, instance *basev1alpha1.LLM) error {
+func (r *LLMReconciler) check3rdPartyLLM(ctx context.Context, logger logr.Logger, llm *basev1alpha1.LLM) error {
 	logger.Info("Checking 3rd party LLM resource")
 
-	var err error
-	// var msg string
+	var (
+		err error
+		msg string
+	)
 
-	_, err = instance.AuthAPIKey(ctx, r.Client)
+	// check auth availability
+	apiKey, err := llm.AuthAPIKey(ctx, r.Client)
 	if err != nil {
-		return r.UpdateStatus(ctx, instance, "", err)
+		return r.UpdateStatus(ctx, llm, nil, err)
 	}
-	// todo: check 3rd party llm
 
-	return nil
+	// get models
+	models := llm.Get3rdPartyModels()
+	if len(models) == 0 {
+		return r.UpdateStatus(ctx, llm, nil, errors.New("no models provided"))
+	}
+
+	switch llm.Spec.Type {
+	case llms.OpenAI:
+		llmClient, err := openai.NewOpenAI(apiKey, llm.Spec.Endpoint.URL)
+		if err != nil {
+			return r.UpdateStatus(ctx, llm, nil, err)
+		}
+
+		for _, model := range models {
+			res, err := llmClient.Validate(ctx, langchainllms.WithModel(model))
+			if err != nil {
+				return r.UpdateStatus(ctx, llm, nil, err)
+			}
+			msg = strings.Join([]string{msg, res.String()}, "\n")
+		}
+	default:
+		return r.UpdateStatus(ctx, llm, nil, errors.New("unsupported llm type"))
+	}
+
+	return r.UpdateStatus(ctx, llm, msg, nil)
 }
 
 func (r *LLMReconciler) UpdateStatus(ctx context.Context, instance *basev1alpha1.LLM, t interface{}, err error) error {
@@ -155,8 +183,30 @@ func (r *LLMReconciler) UpdateStatus(ctx context.Context, instance *basev1alpha1
 	return errors.Join(err, r.Client.Status().Update(ctx, instanceCopy))
 }
 
-func (r *LLMReconciler) checkWorkerLLM(ctx context.Context, logger logr.Logger, instance *basev1alpha1.LLM) error {
-	return nil
+func (r *LLMReconciler) checkWorkerLLM(ctx context.Context, logger logr.Logger, llm *basev1alpha1.LLM) error {
+	logger.Info("Checking worker LLM resource")
+
+	var (
+		err error
+		msg string
+	)
+
+	worker := &basev1alpha1.Worker{}
+	err = r.Client.Get(ctx, types.NamespacedName{Namespace: llm.Namespace,
+		Name: llm.Spec.Worker.Name},
+		worker)
+	if err != nil {
+		return r.UpdateStatus(ctx, llm, nil, err)
+	}
+	if !worker.Status.IsReady() {
+		if worker.Status.IsOffline() {
+			return r.UpdateStatus(ctx, llm, nil, errors.New("worker is offline"))
+		}
+		return r.UpdateStatus(ctx, llm, nil, errors.New("worker is not ready"))
+	}
+
+	msg = "worker is ready"
+	return r.UpdateStatus(ctx, llm, msg, err)
 }
 
 // SetupWithManager sets up the controller with the Manager.

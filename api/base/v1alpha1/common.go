@@ -15,6 +15,17 @@ const (
 	ProviderLabel = Group + "/provider"
 )
 
+type CommonSpec struct {
+	// Creator defines datasource creator (AUTO-FILLED by webhook)
+	Creator string `json:"creator,omitempty"`
+
+	// DisplayName defines datasource display name
+	DisplayName string `json:"displayName,omitempty"`
+
+	// Description defines datasource description
+	Description string `json:"description,omitempty"`
+}
+
 type ProviderType string
 
 const (

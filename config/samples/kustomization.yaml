@@ -3,4 +3,5 @@ resources:
 - llm_v1alpha1_model.yaml
 - base_v1alpha1_llm.yaml
 - base_v1alpha1_prompt.yaml
+- base_v1alpha1_worker.yaml
 #+kubebuilder:scaffold:manifestskustomizesamples

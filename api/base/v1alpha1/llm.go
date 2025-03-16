@@ -3,6 +3,7 @@ package v1alpha1
 import (
 	"context"
 
+	"github.com/fleezesd/llm-operator/pkg/llms"
 	"github.com/samber/lo"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -16,6 +17,23 @@ func (llm LLM) AuthAPIKey(ctx context.Context, c client.Client) (string, error) 
 	return llm.Spec.Endpoint.AuthAPIKey(ctx, llm.GetNamespace(), c)
 }
 
+func (llm LLM) Get3rdPartyModels() []string {
+	if llm.Spec.Provider.GetType() != ProviderType3rdParty {
+		return nil
+	}
+
+	if llm.Spec.Models != nil && len(llm.Spec.Models) > 0 {
+		return llm.Spec.Models
+	}
+
+	switch llm.Spec.Type {
+	case llms.OpenAI:
+		return llms.OpenAIModels
+	}
+	return []string{}
+}
+
+// llm condition
 func (llm LLM) ErrorCondition(msg string) Condition {
 	currCon := llm.Status.GetCondition(TypeReady)
 
