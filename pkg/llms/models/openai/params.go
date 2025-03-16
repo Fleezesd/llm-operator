@@ -15,6 +15,7 @@ const (
 
 var _ llms.ModelParams = (*ModelParams)(nil)
 
+// +kubebuilder:object:generate=true
 type ModelParams struct {
 	// Method used for this prompt call
 	Method Method `json:"method,omitempty"`

@@ -18,15 +18,19 @@ package base
 
 import (
 	"context"
+	"reflect"
 
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
 	ctrl "sigs.k8s.io/controller-runtime"
+	"sigs.k8s.io/controller-runtime/pkg/builder"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	ctrlutil "sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
+	"sigs.k8s.io/controller-runtime/pkg/event"
 	"sigs.k8s.io/controller-runtime/pkg/log"
+	"sigs.k8s.io/controller-runtime/pkg/predicate"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
 	"errors"
@@ -60,7 +64,6 @@ type PromptReconciler struct {
 func (r *PromptReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
 	logger := log.FromContext(ctx)
 	logger.Info("Starting prompt reconcile")
-	// TODO(user): your logic here
 
 	prompt := &basev1alpha1.Prompt{}
 	if err := r.Get(ctx, req.NamespacedName, prompt); err != nil {
@@ -68,6 +71,7 @@ func (r *PromptReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctr
 		return ctrl.Result{}, client.IgnoreNotFound(err)
 	}
 
+	// add finalizer
 	if newAdded := ctrlutil.AddFinalizer(prompt, basev1alpha1.Finalizer); newAdded {
 		logger.Info("Try to add Finalizer for Prompt")
 		if err := r.Update(ctx, prompt); err != nil {
@@ -98,13 +102,6 @@ func (r *PromptReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctr
 	return ctrl.Result{}, nil
 }
 
-// SetupWithManager sets up the controller with the Manager.
-func (r *PromptReconciler) SetupWithManager(mgr ctrl.Manager) error {
-	return ctrl.NewControllerManagedBy(mgr).
-		For(&basev1alpha1.Prompt{}).
-		Complete(r)
-}
-
 func (r *PromptReconciler) CallLLM(ctx context.Context, logger logr.Logger, prompt *basev1alpha1.Prompt) error {
 	if err := r.validatePrompt(prompt); err != nil {
 		return err
@@ -117,11 +114,7 @@ func (r *PromptReconciler) CallLLM(ctx context.Context, logger logr.Logger, prom
 	if err != nil {
 		return r.UpdateStatus(ctx, prompt, nil, err)
 	}
-	llmClient, err := r.createLLMClient(llm, apiKey)
-	if err != nil {
-		return r.UpdateStatus(ctx, prompt, nil, err)
-	}
-	return r.executeLLMCall(ctx, prompt, llmClient)
+	return r.executeLLMCall(ctx, apiKey, prompt, llm)
 }
 
 func (r *PromptReconciler) validatePrompt(prompt *basev1alpha1.Prompt) error {
@@ -140,18 +133,22 @@ func (r *PromptReconciler) getLLMConfig(ctx context.Context, prompt *basev1alpha
 	return llm, err
 }
 
-func (r *PromptReconciler) createLLMClient(llm *basev1alpha1.LLM, apiKey string) (llms.LLM, error) {
+func (r *PromptReconciler) executeLLMCall(ctx context.Context, apiKey string, prompt *basev1alpha1.Prompt, llm *basev1alpha1.LLM) error {
+	var (
+		callData  []byte
+		llmClient llms.LLM
+		err       error
+	)
 	switch llm.Spec.Type {
 	case llms.OpenAI:
-		return openai.NewOpenAI(apiKey, llm.Spec.Endpoint.URL)
+		llmClient, err = openai.NewOpenAI(apiKey, llm.Spec.Endpoint.URL)
+		if err != nil {
+			return err
+		}
+		callData = prompt.Spec.OpenAIParams.Marshal()
 	default:
-		return nil, errors.New("unsupported LLM type")
+		return errors.New("unsupported LLM type")
 	}
-}
-
-func (r *PromptReconciler) executeLLMCall(ctx context.Context, prompt *basev1alpha1.Prompt, llmClient llms.LLM) error {
-	var callData []byte
-	// todo: need prompt marshal for call llm and add model params
 	resp, err := llmClient.Call(callData)
 	if err != nil {
 		return r.UpdateStatus(ctx, prompt, resp, err)
@@ -179,4 +176,31 @@ func (r *PromptReconciler) UpdateStatus(ctx context.Context, prompt *basev1alpha
 		promptDeepCopy.Status.Data = response.Bytes()
 	}
 	return errors.Join(err, r.Client.Status().Update(ctx, promptDeepCopy))
+}
+
+// SetupWithManager sets up the controller with the Manager.
+func (r *PromptReconciler) SetupWithManager(mgr ctrl.Manager) error {
+	return ctrl.NewControllerManagedBy(mgr).
+		For(&basev1alpha1.Prompt{}, builder.WithPredicates(
+			PromptPredicates{},
+		)). // predicate for prompt crd
+		Complete(r)
+}
+
+type PromptPredicates struct {
+	predicate.Funcs
+}
+
+// set create predicates
+func (p PromptPredicates) Create(ce event.CreateEvent) bool {
+	prompt := ce.Object.(*basev1alpha1.Prompt)
+	// check new prompt
+	return len(prompt.Status.ConditionedStatus.Conditions) == 0
+}
+
+func (p PromptPredicates) Update(ue event.UpdateEvent) bool {
+	oldPrompt := ue.ObjectOld.(*basev1alpha1.Prompt)
+	newPrompt := ue.ObjectNew.(*basev1alpha1.Prompt)
+	// check update prompt
+	return !reflect.DeepEqual(oldPrompt.Spec, newPrompt.Spec) || newPrompt.DeletionTimestamp != nil
 }

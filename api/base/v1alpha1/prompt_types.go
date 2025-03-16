@@ -19,6 +19,8 @@ package v1alpha1
 import (
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+
+	llmopenai "github.com/fleezesd/llm-operator/pkg/llms/models/openai"
 )
 
 // EDIT THIS FILE!  THIS IS SCAFFOLDING FOR YOU TO OWN!
@@ -28,6 +30,8 @@ import (
 type PromptSpec struct {
 	// llm service name (CRD LLM)
 	LLM *corev1.TypedObjectReference `json:"llm"`
+	// OpenAI Prompt Params
+	OpenAIParams *llmopenai.ModelParams `json:"openAIParams,omitempty"`
 }
 
 // PromptStatus defines the observed state of Prompt

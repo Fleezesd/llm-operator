@@ -19,19 +19,26 @@ package base
 import (
 	"context"
 	"errors"
+	"reflect"
 	"strings"
 
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
 	ctrl "sigs.k8s.io/controller-runtime"
+	"sigs.k8s.io/controller-runtime/pkg/builder"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	ctrlutil "sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
+	"sigs.k8s.io/controller-runtime/pkg/event"
+	"sigs.k8s.io/controller-runtime/pkg/handler"
 	"sigs.k8s.io/controller-runtime/pkg/log"
+	"sigs.k8s.io/controller-runtime/pkg/predicate"
+	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
 	basev1alpha1 "github.com/fleezesd/llm-operator/api/base/v1alpha1"
 	"github.com/fleezesd/llm-operator/pkg/llms"
 	"github.com/fleezesd/llm-operator/pkg/llms/models/openai"
 	"github.com/go-logr/logr"
+	"github.com/samber/lo"
 	langchainllms "github.com/tmc/langchaingo/llms"
 )
 
@@ -212,6 +219,55 @@ func (r *LLMReconciler) checkWorkerLLM(ctx context.Context, logger logr.Logger, 
 // SetupWithManager sets up the controller with the Manager.
 func (r *LLMReconciler) SetupWithManager(mgr ctrl.Manager) error {
 	return ctrl.NewControllerManagedBy(mgr).
-		For(&basev1alpha1.LLM{}).
+		For(&basev1alpha1.LLM{}, builder.WithPredicates(
+			LLMPredicates{},
+		)).
+		Watches(&basev1alpha1.Worker{}, handler.EnqueueRequestsFromMapFunc(
+			func(ctx context.Context, o client.Object) []reconcile.Request {
+				// Cast the object to Worker type
+				worker := o.(*basev1alpha1.Worker)
+
+				// Get a deep copy of the model spec from the worker
+				model := worker.Spec.Model.DeepCopy()
+
+				// If namespace is not specified, use the worker's namespace
+				if lo.IsNil(model.Namespace) {
+					model.Namespace = &worker.Namespace
+				}
+
+				// Try to fetch the referenced Model resource
+				m := &basev1alpha1.Model{}
+				if err := r.Client.Get(context.TODO(), types.NamespacedName{
+					Namespace: *model.Namespace,
+					Name:      model.Name,
+				}, m); err != nil {
+					// If model not found, return empty request list
+					return []ctrl.Request{}
+				}
+
+				// If the model is an LLM model, trigger reconciliation
+				if m.IsLLMModel() {
+					return []ctrl.Request{
+						reconcile.Request{
+							NamespacedName: client.ObjectKeyFromObject(o),
+						},
+					}
+				}
+
+				// Otherwise return empty request list
+				return []ctrl.Request{}
+			},
+		)).
 		Complete(r)
+}
+
+type LLMPredicates struct {
+	predicate.Funcs
+}
+
+func (p LLMPredicates) Update(ue event.UpdateEvent) bool {
+	// Avoid to handle the event that it's not spec update or delete
+	oldLLM := ue.ObjectOld.(*basev1alpha1.LLM)
+	newLLM := ue.ObjectNew.(*basev1alpha1.LLM)
+	return !reflect.DeepEqual(oldLLM.Spec, newLLM.Spec) || newLLM.DeletionTimestamp != nil
 }

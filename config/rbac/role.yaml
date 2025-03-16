@@ -29,6 +29,110 @@ rules:
   - update
   - watch
 - apiGroups:
+  - base.fleezesd.io
+  resources:
+  - llms
+  verbs:
+  - create
+  - delete
+  - get
+  - list
+  - patch
+  - update
+  - watch
+- apiGroups:
+  - base.fleezesd.io
+  resources:
+  - llms/finalizers
+  verbs:
+  - update
+- apiGroups:
+  - base.fleezesd.io
+  resources:
+  - llms/status
+  verbs:
+  - get
+  - patch
+  - update
+- apiGroups:
+  - base.fleezesd.io
+  resources:
+  - models
+  verbs:
+  - create
+  - delete
+  - get
+  - list
+  - patch
+  - update
+  - watch
+- apiGroups:
+  - base.fleezesd.io
+  resources:
+  - models/finalizers
+  verbs:
+  - update
+- apiGroups:
+  - base.fleezesd.io
+  resources:
+  - models/status
+  verbs:
+  - get
+  - patch
+  - update
+- apiGroups:
+  - base.fleezesd.io
+  resources:
+  - prompts
+  verbs:
+  - create
+  - delete
+  - get
+  - list
+  - patch
+  - update
+  - watch
+- apiGroups:
+  - base.fleezesd.io
+  resources:
+  - prompts/finalizers
+  verbs:
+  - update
+- apiGroups:
+  - base.fleezesd.io
+  resources:
+  - prompts/status
+  verbs:
+  - get
+  - patch
+  - update
+- apiGroups:
+  - base.fleezesd.io
+  resources:
+  - workers
+  verbs:
+  - create
+  - delete
+  - get
+  - list
+  - patch
+  - update
+  - watch
+- apiGroups:
+  - base.fleezesd.io
+  resources:
+  - workers/finalizers
+  verbs:
+  - update
+- apiGroups:
+  - base.fleezesd.io
+  resources:
+  - workers/status
+  verbs:
+  - get
+  - patch
+  - update
+- apiGroups:
   - batch
   resources:
   - jobs
