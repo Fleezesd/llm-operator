@@ -5,4 +5,5 @@ resources:
 - base_v1alpha1_prompt.yaml
 - base_v1alpha1_worker.yaml
 - base_v1alpha1_model.yaml
+- base_v1alpha1_datasource.yaml
 #+kubebuilder:scaffold:manifestskustomizesamples

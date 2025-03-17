@@ -54,4 +54,13 @@ resources:
   kind: Model
   path: github.com/fleezesd/llm-operator/api/base/v1alpha1
   version: v1alpha1
+- api:
+    crdVersion: v1
+    namespaced: true
+  controller: true
+  domain: fleezesd.io
+  group: base
+  kind: DataSource
+  path: github.com/fleezesd/llm-operator/api/base/v1alpha1
+  version: v1alpha1
 version: "3"

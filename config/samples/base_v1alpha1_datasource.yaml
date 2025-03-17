@@ -1,0 +1,12 @@
+apiVersion: base.fleezesd.io/v1alpha1
+kind: DataSource
+metadata:
+  labels:
+    app.kubernetes.io/name: datasource
+    app.kubernetes.io/instance: datasource-sample
+    app.kubernetes.io/part-of: llm-operator
+    app.kubernetes.io/managed-by: kustomize
+    app.kubernetes.io/created-by: llm-operator
+  name: datasource-sample
+spec:
+  # TODO(user): Add fields here

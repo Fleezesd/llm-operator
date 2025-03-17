@@ -22,9 +22,11 @@ import (
 	"k8s.io/apimachinery/pkg/runtime"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+	ctrlutil "sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 	"sigs.k8s.io/controller-runtime/pkg/log"
 
 	basev1alpha1 "github.com/fleezesd/llm-operator/api/base/v1alpha1"
+	"github.com/go-logr/logr"
 )
 
 // ModelReconciler reconciles a Model object
@@ -47,11 +49,37 @@ type ModelReconciler struct {
 // For more details, check Reconcile and its Result here:
 // - https://pkg.go.dev/sigs.k8s.io/controller-runtime@v0.16.3/pkg/reconcile
 func (r *ModelReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
-	_ = log.FromContext(ctx)
+	logger := log.FromContext(ctx)
+	logger.V(5).Info("Starting model reconcile")
 
-	// TODO(user): your logic here
+	model := &basev1alpha1.Model{}
+	if err := r.Get(ctx, req.NamespacedName, model); err != nil {
+		logger.V(1).Info("Failed to get Model")
+		return ctrl.Result{}, client.IgnoreNotFound(err)
+	}
+
+	if newAdded := ctrlutil.AddFinalizer(model, basev1alpha1.Finalizer); newAdded {
+		logger.Info("Try to add Finalizer for Model")
+		if err := r.Update(ctx, model); err != nil {
+			logger.Error(err, "Failed to update Model to add finalizer, will try again later")
+			return ctrl.Result{}, err
+		}
+		logger.Info("Adding Finalizer for Model done")
+		return ctrl.Result{Requeue: true}, nil
+	}
+
+	if model.GetDeletionTimestamp() != nil && ctrlutil.ContainsFinalizer(model, basev1alpha1.Finalizer) {
+		logger.Info("Performing Finalizer Operations for Model before delete CR")
+		// remova all model files from storage service
+
+	}
 
 	return ctrl.Result{}, nil
+}
+func (r *ModelReconciler) RemoveModel(ctx context.Context, logger logr.Logger, model *basev1alpha1.Model) error {
+
+	return nil
+
 }
 
 // SetupWithManager sets up the controller with the Manager.
